@@ -86,9 +86,15 @@ def stop_motors():
     GPIO.output(in3_pin, GPIO.LOW)
     GPIO.output(in4_pin, GPIO.LOW)
     
-def search_balls(cap, frame):
-    distance_ball = 110
+def search_balls(cap):
+
+    ret, frame = cap.VideoCapture(0)
+
     
+    distance_ball = 110
+
+    loopVar = 0
+
     while True:
         print("searching left")
         left()
@@ -99,6 +105,26 @@ def search_balls(cap, frame):
         pwm_a.ChangeDutyCycle(0)
         pwm_b.ChangeDutyCycle(0)
         time.sleep(2)
+    
+        pwm_a.ChangeDutyCycle(0)
+        pwm_b.ChangeDutyCycle(0)
+        time.sleep(2)
+
+        ###START CODE SEARCH RIGHT - CENTER
+        while loopVar < 5:
+            right() 
+            pwm_a.ChangeDutyCycle(70)
+            pwm_b.ChangeDutyCycle(70)
+            time.sleep(0.1)
+            stop_motors()
+            pwm_a.ChangeDutyCycle(0)
+            pwm_b.ChangeDutyCycle(0)
+            time.sleep(2)    
+
+            if verify_distance(cap) < 1000:
+
+            loopVar += 1
+
         right() 
         pwm_a.ChangeDutyCycle(70)
         pwm_b.ChangeDutyCycle(70)
@@ -107,6 +133,7 @@ def search_balls(cap, frame):
         pwm_a.ChangeDutyCycle(0)
         pwm_b.ChangeDutyCycle(0)
         time.sleep(2)
+
         right() 
         pwm_a.ChangeDutyCycle(70)
         pwm_b.ChangeDutyCycle(70)
@@ -115,6 +142,7 @@ def search_balls(cap, frame):
         pwm_a.ChangeDutyCycle(0)
         pwm_b.ChangeDutyCycle(0)
         time.sleep(2)
+
         right() 
         pwm_a.ChangeDutyCycle(70)
         pwm_b.ChangeDutyCycle(70)
@@ -123,6 +151,7 @@ def search_balls(cap, frame):
         pwm_a.ChangeDutyCycle(0)
         pwm_b.ChangeDutyCycle(0)
         time.sleep(2)
+
         right() 
         pwm_a.ChangeDutyCycle(70)
         pwm_b.ChangeDutyCycle(70)
@@ -131,20 +160,19 @@ def search_balls(cap, frame):
         pwm_a.ChangeDutyCycle(0)
         pwm_b.ChangeDutyCycle(0)
         time.sleep(2)
-        right() 
-        pwm_a.ChangeDutyCycle(70)
-        pwm_b.ChangeDutyCycle(70)
-        time.sleep(0.1)
-        stop_motors()
-        pwm_a.ChangeDutyCycle(0)
-        pwm_b.ChangeDutyCycle(0)
-        time.sleep(2)
+
         print("searching right")
         right()
         pwm_a.ChangeDutyCycle(70)
         pwm_b.ChangeDutyCycle(70)
         time.sleep(0.3)
         stop_motors()
+
+        ###############BACK TO CENTER############
+        
+
+
+
         pwm_a.ChangeDutyCycle(0)
         pwm_b.ChangeDutyCycle(0)
         time.sleep(2)
@@ -189,7 +217,147 @@ def search_balls(cap, frame):
         pwm_b.ChangeDutyCycle(0)
         time.sleep(2)
 
-    
+def confirm_distance(desired_distance):
+
+    ret, frame = cap.read()
+
+    tolerance_percentage = 36
+    known_radius = 35  #25 Radius of the ball in real life (mm)
+    focal_length = 700  # Known focal length of the camera (mm)
+
+    lower_red = np.array([0, 120, 70])
+    upper_red = np.array([10, 255, 255])
+
+    lower_green = np.array([36, 50, 50])
+    upper_green = np.array([86, 255, 255])
+
+    lower_blue = np.array([100, 150, 0])
+    upper_blue = np.array([140, 255, 255])
+
+    balls = []
+    balls += detect_balls(frame, lower_red, upper_red, color_name="red")
+    balls += detect_balls(frame, lower_green, upper_green, color_name="green")
+    balls += detect_balls(frame, lower_blue, upper_blue, color_name="blue")
+
+    # Calculate distance for each ball and store it along with the ball info
+    balls_with_dist = [(x, y, radius, color_name, calculate_distance(radius, known_radius, focal_length)) for
+                       (x, y, radius, color_name) in balls]
+
+    # Sort balls by distance and then by their x-coordinate (closest and more centered first)
+    balls_with_dist = sorted(balls_with_dist, key=lambda ball: (ball[4], abs(ball[0] - frame.shape[1] // 2)))
+
+    if balls_with_dist:
+        x, y, radius, color_name, distance = balls_with_dist[0]  # Closest and more centered ball
+
+        print(f"Detected ball: {color_name.capitalize()}, Distance: {distance:.2f} mm")
+
+        if distance < desired_distance and abs(x - frame.shape[1] // 2) < 10:
+            stop()
+        else:
+            center_x = frame.shape[1] // 2
+            offset_x = x - center_x
+            distance_from_center = abs(offset_x)
+            verified_dst = verify_distance()
+
+            if verified_dst < 1000:#300
+                if distance_from_center <= tolerance_percentage * frame.shape[1] / 100:
+                    # Ball is centered
+                    second_verify_dst = verify_distance()
+                    print("Ball is centered")
+                        
+                    if second_verify_dst > 110:
+                        GPIO.output(m1_ina, GPIO.HIGH)
+                        GPIO.output(m1_inb, GPIO.LOW)
+                        GPIO.output(m2_ina, GPIO.HIGH)
+                        GPIO.output(m2_inb, GPIO.LOW)
+                        motor1_pwm.ChangeDutyCycle(35)
+                        motor2_pwm.ChangeDutyCycle(25)
+                        time.sleep(.1)
+                        motor1_pwm.ChangeDutyCycle(0)
+                        motor2_pwm.ChangeDutyCycle(0)
+                        time.sleep(.5)
+                    elif second_verify_dst <= 110:
+                        color_name = identify_color(cap)
+
+                        if color_name in "red" and distance <= 110:
+                            time.sleep(.3)
+
+                            print("Color is red")
+                            time.sleep(2)
+                            gather_ball()
+                        elif color_name in "green" and distance <= 110:
+                            time.sleep(.3)
+
+                            print("Color is green")
+                            time.sleep(2)
+                            gather_ball()
+                        elif color_name in "blue" and distance <= 110:
+                            time.sleep(.3)
+
+                            print("Color is blue")
+                            time.sleep(2)
+                            gather_ball()                    
+
+
+
+
+                    motor1_pwm.ChangeDutyCycle(0)
+                    motor2_pwm.ChangeDutyCycle(0)
+                    time.sleep(.5)
+                else:
+                    if offset_x < 0:
+                        turn_left_slow()
+                        
+                        GPIO.output(m1_ina, GPIO.LOW)
+                        GPIO.output(m1_inb, GPIO.HIGH)
+                        GPIO.output(m2_ina, GPIO.HIGH)
+                        GPIO.output(m2_inb, GPIO.LOW)
+
+                        motor1_pwm.ChangeDutyCycle(45)
+                        motor2_pwm.ChangeDutyCycle(45)
+                        time.sleep(.3)
+                        motor1_pwm.ChangeDutyCycle(0)
+                        motor2_pwm.ChangeDutyCycle(0)
+                        time.sleep(2)
+                    else:
+                        turn_right_slow()
+
+                        GPIO.output(m1_ina, GPIO.HIGH)
+                        GPIO.output(m1_inb, GPIO.LOW)
+                        GPIO.output(m2_ina, GPIO.LOW)
+                        GPIO.output(m2_inb, GPIO.HIGH)   
+                        
+                        motor1_pwm.ChangeDutyCycle(45)
+                        motor2_pwm.ChangeDutyCycle(45)
+                        time.sleep(.3)
+                        
+                        motor1_pwm.ChangeDutyCycle(0)
+                        motor2_pwm.ChangeDutyCycle(0)
+                        time.sleep(2)
+            else:
+                GPIO.output(m1_ina, GPIO.HIGH)
+                GPIO.output(m1_inb, GPIO.LOW)
+                GPIO.output(m2_ina, GPIO.HIGH)
+                GPIO.output(m2_inb, GPIO.LOW)
+                motor1_pwm.ChangeDutyCycle(50)
+                motor2_pwm.ChangeDutyCycle(50)
+                time.sleep(.1) 
+                motor1_pwm.ChangeDutyCycle(0)
+                motor2_pwm.ChangeDutyCycle(0)
+                time.sleep(2)
+
+        return distance   
+    else:
+        right() 
+        pwm_a.ChangeDutyCycle(70)
+        pwm_b.ChangeDutyCycle(70)
+        time.sleep(0.1)
+        stop_motors()
+        pwm_a.ChangeDutyCycle(0)
+        pwm_b.ChangeDutyCycle(0)
+        time.sleep(2)          
+
+      
     
 def set_angle(servo, angle):
     duty = angle / 18 + 2  # Map angle to duty cycle (2 to 12)
@@ -318,9 +486,9 @@ def track_balls(cap):
                 time.sleep(2)
                 gather_ball()
                 break
-            # ~ else: 
-                # ~ search_balls(cap, frame)
-                # ~ return
+        else: 
+            search_balls(cap, frame)
+            # ~ return
 
                 
         cv2.imshow('Frame', frame)
@@ -332,7 +500,93 @@ def track_balls(cap):
 
     cap.release()
     cv2.destroyAllWindows()
+
+def identify_color(cap):
+    known_radius = 25  # Radius of the ball in real life (mm)
+    focal_length = 700  # Known focal length of the camera (mm)
     
+    coloredBallDistance = 110#62
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        lower_red = np.array([0, 120, 70])
+        upper_red = np.array([10, 255, 255])
+
+        lower_green = np.array([36, 50, 50])
+        upper_green = np.array([86, 255, 255])
+
+        lower_blue = np.array([100, 150, 0])
+        upper_blue = np.array([140, 255, 255])
+
+        balls = []
+        balls += detect_balls(frame, lower_red, upper_red, color_name="red")
+        balls += detect_balls(frame, lower_green, upper_green, color_name="green")
+        balls += detect_balls(frame, lower_blue, upper_blue, color_name="blue")
+
+        # Calculate distance for each ball and store it along with the ball info
+        balls_with_dist = [(x, y, radius, color_name, calculate_distance(radius, known_radius, focal_length)) for (x, y, radius, color_name) in balls]
+
+        # Sort balls by distance and then by their x-coordinate (closest and more centered first)
+        balls_with_dist = sorted(balls_with_dist, key=lambda ball: (ball[4], abs(ball[0] - frame.shape[1] // 2)))
+
+        if balls_with_dist:
+            
+            x, y, radius, color_name, distance = balls_with_dist[0]  # Closest and more centered ball
+
+            return color_name
+
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+def verify_distance(cap):
+    known_radius = 25  # Radius of the ball in real life (mm)
+    focal_length = 700  # Known focal length of the camera (mm)
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        lower_red = np.array([0, 120, 70])
+        upper_red = np.array([10, 255, 255])
+
+        lower_green = np.array([36, 50, 50])
+        upper_green = np.array([86, 255, 255])
+
+        lower_blue = np.array([100, 150, 0])
+        upper_blue = np.array([140, 255, 255])
+
+        balls = []
+        balls += detect_balls(frame, lower_red, upper_red, color_name="red")
+        balls += detect_balls(frame, lower_green, upper_green, color_name="green")
+        balls += detect_balls(frame, lower_blue, upper_blue, color_name="blue")
+
+        # Calculate distance for each ball and store it along with the ball info
+        balls_with_dist = [(x, y, radius, color_name, calculate_distance(radius, known_radius, focal_length)) for (x, y, radius, color_name) in balls]
+
+        # Sort balls by distance and then by their x-coordinate (closest and more centered first)
+        balls_with_dist = sorted(balls_with_dist, key=lambda ball: (ball[4], abs(ball[0] - frame.shape[1] // 2)))
+
+        if balls_with_dist:
+            
+            x, y, radius, color_name, distance = balls_with_dist[0]  # Closest and more centered ball
+            # Draw fixed crosshair centered on the frame
+            crosshair_color = (0, 0, 255)
+            cv2.line(frame, (frame.shape[1] // 2, 0), (frame.shape[1] // 2, frame.shape[0]), crosshair_color, 1)
+            cv2.line(frame, (0, frame.shape[0] // 2), (frame.shape[1], frame.shape[0] // 2), crosshair_color, 1)
+            cv2.putText(frame, "+", (frame.shape[1] // 2 - 10, frame.shape[0] // 2 + 10), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7, crosshair_color, 2)
+
+            # Draw crosshair
+            cv2.line(frame, (x, 0), (x, frame.shape[0]), (0, 255, 0), 1)
+            cv2.line(frame, (0, y), (frame.shape[1], y), (0, 255, 0), 1)
+            return distance
+        return 0
 
 def detect_balls(image, lower, upper, min_size=2000, color_name=""):
     hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -363,7 +617,8 @@ def calculate_distance(radius, known_radius, focal_length):
 
 try:
     cap = cv2.VideoCapture(0)
-    track_balls(cap)
+    #track_balls(cap)
+    confirm_distance(cap)
 except KeyboardInterrupt:
     print("Interrupted by user")
 
